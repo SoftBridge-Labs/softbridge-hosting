@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { authenticateRequest } from '@/lib/auth';
-import { getKv, DeploymentRecord } from '@/lib/db';
+import { getKv } from '@/lib/db';
+import { prisma } from '@/lib/prisma';
 
 const RESERVED_SUBDOMAINS = [
   'www', 'api', 'admin', 'app', 'auth', 'login', 'support', 'docs',
@@ -9,80 +9,84 @@ const RESERVED_SUBDOMAINS = [
 ];
 
 export async function POST(req: NextRequest) {
-  const uid = await authenticateRequest(req);
-  if (!uid) {
-    return NextResponse.json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Unauthorized' } }, { status: 401 });
-  }
-
   try {
     const body = await req.json();
-    const { userId, projectName, subdomain, plan } = body;
-
-    if (uid !== userId) {
-      return NextResponse.json({ success: false, error: { code: 'FORBIDDEN', message: 'User ID mismatch' } }, { status: 403 });
+    let { userId, projectName, subdomain, plan = "free", html = "", css = "", js = "" } = body;
+    
+    // Fallback if the Flutter app is outdated and passes uid in url or something
+    if (!userId) {
+      userId = req.nextUrl.searchParams.get('uid') || body.uid;
     }
 
-    const MAIN_API_URL = process.env.MAIN_API_URL || 'https://api.softbridgelabs.in';
-    const verifyRes = await fetch(`${MAIN_API_URL}/github/contents?userId=${userId}&projectName=${projectName}&path=index.html`);
-    if (!verifyRes.ok) {
-      return NextResponse.json({ success: false, error: { code: 'PROJECT_NOT_FOUND', message: 'Project or index.html not found in GitHub repository' } }, { status: 400 });
+    if (!userId) {
+      return NextResponse.json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Missing userId' } }, { status: 401 });
+    }
+
+    if (!projectName || !subdomain) {
+      return NextResponse.json({ success: false, error: { code: 'BAD_REQUEST', message: 'Missing required fields: projectName, subdomain' } }, { status: 400 });
     }
 
     if (!/^[a-z0-9-]+$/.test(subdomain)) {
-      return NextResponse.json({ success: false, error: { code: 'INVALID_SUBDOMAIN', message: 'Subdomain must be alphanumeric and hyphens only' } }, { status: 400 });
+      return NextResponse.json({ success: false, error: { code: 'INVALID_SUBDOMAIN', message: 'Subdomain must only contain lowercase letters, numbers, and hyphens' } }, { status: 400 });
     }
 
     if (RESERVED_SUBDOMAINS.includes(subdomain.toLowerCase())) {
       return NextResponse.json({ success: false, error: { code: 'RESERVED_SUBDOMAIN', message: 'This subdomain is reserved' } }, { status: 400 });
     }
 
+    if (!html.trim() && !css.trim() && !js.trim()) {
+      return NextResponse.json({ success: false, error: { code: "EMPTY_CODE", message: "Please provide at least some HTML content" } }, { status: 400 });
+    }
+
     const kv = await getKv();
 
-    // Check if subdomain is taken
-    const existingDomain = await kv.get(['deployments_by_subdomain', subdomain]);
-    if (existingDomain.value) {
-      return NextResponse.json({ success: false, error: { code: 'SUBDOMAIN_TAKEN', message: 'Subdomain is already taken' } }, { status: 400 });
+    // Check if subdomain is already taken in KV
+    const existing = await kv.get(['deployments_by_subdomain', subdomain]);
+    if (existing.value && (existing.value as any).userId !== userId) {
+      return NextResponse.json({ success: false, error: { code: 'SUBDOMAIN_TAKEN', message: 'This subdomain is already in use' } }, { status: 400 });
     }
 
+    // Plan limits
     const limit = plan === 'premium' ? 10 : 1;
-    
-    // Count active deployments for user
-    const userDeploymentsIter = kv.list({ prefix: ['deployments_by_user', userId] });
-    let activeDeploymentsCount = 0;
-    for await (const entry of userDeploymentsIter) {
-      if (entry.value.status === 'active') {
-        activeDeploymentsCount++;
-      }
+    let activeCount = 0;
+    for await (const entry of kv.list({ prefix: ['deployments_by_user', userId] })) {
+      if ((entry.value as any).status === 'active') activeCount++;
     }
 
-    if (activeDeploymentsCount >= limit) {
-      return NextResponse.json({ success: false, error: { code: 'DEPLOYMENT_LIMIT_REACHED', message: `${plan} users can publish only ${limit} website(s).` } }, { status: 400 });
+    if (activeCount >= limit && !existing.value) {
+      return NextResponse.json({ success: false, error: { code: 'LIMIT_REACHED', message: `${plan} plan allows max ${limit} site(s)` } }, { status: 400 });
     }
 
-    const deploymentId = `dep_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+    const now = new Date();
 
-    const newDeployment: DeploymentRecord = {
-      deploymentId,
+    // Upsert site in Postgres (create or update code)
+    const site = await prisma.site.upsert({
+      where: { subdomain },
+      create: { subdomain, userId, projectName, plan, html, css, js, status: "active" },
+      update: { html, css, js, projectName, plan, updatedAt: now, lastDeployedAt: now },
+    });
+
+    // Store metadata in KV for fast subdomain lookups
+    const meta = {
+      siteId: site.id,
       userId,
-      projectName,
       subdomain,
+      projectName,
       plan,
-      status: 'active',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      lastDeployedAt: new Date().toISOString(),
+      status: "active",
+      createdAt: site.createdAt.toISOString(),
+      lastDeployedAt: now.toISOString(),
     };
-
-    // Save transaction
+    
     await kv.atomic()
-      .set(['deployments_by_subdomain', subdomain], newDeployment)
-      .set(['deployments_by_user', userId, deploymentId], newDeployment)
-      .set(['deployments_by_id', deploymentId], newDeployment)
+      .set(['deployments_by_subdomain', subdomain], meta)
+      .set(['deployments_by_user', userId, site.id], meta)
+      .set(['deployments_by_id', site.id], meta)
       .commit();
 
     return NextResponse.json({
       success: true,
-      deploymentId,
+      deploymentId: site.id,
       url: `https://${subdomain}.sblab.xyz`,
       status: 'active'
     });
