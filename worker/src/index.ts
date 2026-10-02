@@ -71,13 +71,17 @@ export default {
           
           const fallbackRes = await fetch(fallbackUrl.toString());
           if (fallbackRes.ok) {
-            return new Response(fallbackRes.body, {
-              status: 404,
-              headers: {
-                'Content-Type': 'text/html',
-                'Cache-Control': 'public, max-age=300'
-              }
-            });
+            const fallbackJson = await fallbackRes.json() as any;
+            if (fallbackJson.success && fallbackJson.data && fallbackJson.data.content) {
+              const decodedFallback = atob(fallbackJson.data.content);
+              return new Response(decodedFallback, {
+                status: 404,
+                headers: {
+                  'Content-Type': 'text/html',
+                  'Cache-Control': 'public, max-age=300'
+                }
+              });
+            }
           }
         }
         
@@ -85,11 +89,24 @@ export default {
         return Response.redirect(playStoreUrl, 302);
       }
 
+      const fileJson = await fileRes.json() as any;
+      if (!fileJson.success || !fileJson.data || !fileJson.data.content) {
+         return Response.redirect(playStoreUrl, 302);
+      }
+      
       const extMatch = filePath.match(/\.[0-9a-z]+$/i);
       const ext = extMatch ? extMatch[0].toLowerCase() : '';
       const contentType = MIME_TYPES[ext] || 'application/octet-stream';
 
-      return new Response(fileRes.body, {
+      // Decode base64 content from GitHub API
+      // We use Uint8Array to correctly handle binary files like images
+      const binaryString = atob(fileJson.data.content);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+
+      return new Response(bytes.buffer, {
         status: 200,
         headers: {
           'Content-Type': contentType,
