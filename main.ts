@@ -203,9 +203,20 @@ Deno.serve(async (req: Request) => {
   const path = url.pathname;
 
   try {
+    // Root route - version info to verify deployment
+    if (path === "/") {
+      return json({ 
+        name: "SoftBridge Hosting API",
+        version: "3.0.0",
+        deploymentId: Deno.env.get("DENO_DEPLOYMENT_ID") || "local",
+        status: "online",
+        message: "If you see this, you are hitting the NEW Deno Deploy server!"
+      });
+    }
+
     // Health
     if (path === "/api/health") {
-      return json({ success: true, version: "3.0.0" });
+      return json({ success: true, version: "3.0.0", deploymentId: Deno.env.get("DENO_DEPLOYMENT_ID") || "local" });
     }
 
     // Deploy (create/update site with code)
