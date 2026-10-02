@@ -1,0 +1,29 @@
+// This is your Prisma schema file
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Site {
+  id           String   @id @default(cuid())
+  subdomain    String   @unique
+  userId       String
+  projectName  String
+  plan         String   @default("free")
+  status       String   @default("active")
+  html         String   @default("")
+  css          String   @default("")
+  js           String   @default("")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  lastDeployedAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([subdomain])
+}

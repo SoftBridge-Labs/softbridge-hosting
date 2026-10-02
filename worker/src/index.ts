@@ -1,123 +1,90 @@
+// @ts-nocheck
+// Cloudflare Worker — serves HTML/CSS/JS from Deno Deploy + Prisma Postgres
+
 export interface Env {
-  API_URL: string;
   HOSTING_API_URL: string;
 }
 
-const MIME_TYPES: Record<string, string> = {
-  '.html': 'text/html',
-  '.css': 'text/css',
-  '.js': 'application/javascript',
-  '.json': 'application/json',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.gif': 'image/gif',
-  '.svg': 'image/svg+xml',
-  '.woff': 'font/woff',
-  '.woff2': 'font/woff2',
-  '.ttf': 'font/ttf',
-  '.ico': 'image/x-icon',
-};
+const playStoreUrl =
+  "https://play.google.com/store/apps/details?id=com.protecgames.htmleditorpro";
+
+function redirect(url: string) {
+  return Response.redirect(url, 302);
+}
 
 export default {
   async fetch(request: Request, env: Env, ctx: any): Promise<Response> {
-    const playStoreUrl = 'https://play.google.com/store/apps/details?id=com.protecgames.htmleditorpro';
-    
     try {
       const url = new URL(request.url);
       const hostname = url.hostname;
 
-      if (!hostname.endsWith('.sblab.xyz')) {
-        return Response.redirect(playStoreUrl, 302);
+      if (!hostname.endsWith(".sblab.xyz")) {
+        return redirect(playStoreUrl);
       }
 
-      const subdomain = hostname.replace('.sblab.xyz', '');
+      const subdomain = hostname.replace(".sblab.xyz", "");
+      const hostingApi = env.HOSTING_API_URL || "https://sblab.xyz";
 
-      // Fallbacks in case environment variables aren't set in Cloudflare dashboard
-      const hostingApi = env.HOSTING_API_URL || 'https://sblab.xyz';
-      const deploymentRes = await fetch(`${hostingApi}/api/sites/${subdomain}`);
-      
-      if (!deploymentRes.ok) {
-        // Site not found -> Redirect to Play Store
-        return Response.redirect(playStoreUrl, 302);
+      // Fetch HTML/CSS/JS code from Deno Deploy API
+      const codeRes = await fetch(`${hostingApi}/api/sites/${subdomain}/code`);
+
+      if (!codeRes.ok) {
+        return redirect(playStoreUrl);
       }
 
-      const deployment = await deploymentRes.json() as any;
-      if (!deployment || !deployment.userId || !deployment.projectName) {
-        return Response.redirect(playStoreUrl, 302);
-      }
+      const site = (await codeRes.json()) as any;
+      if (!site.success) return redirect(playStoreUrl);
 
-      let filePath = url.pathname;
-      if (filePath === '/' || filePath === '') filePath = '/index.html';
+      // Assemble a full HTML page combining html + css + js
+      const fullHtml = buildPage(site.html || "", site.css || "", site.js || "");
 
-      if (filePath.includes('..')) {
-        return Response.redirect(playStoreUrl, 302);
-      }
-
-      const apiUrl = env.API_URL || 'https://api.softbridgelabs.in';
-      const githubApiUrl = new URL(`${apiUrl}/github/contents`);
-      githubApiUrl.searchParams.set('userId', deployment.userId);
-      githubApiUrl.searchParams.set('projectName', deployment.projectName);
-      githubApiUrl.searchParams.set('path', filePath.startsWith('/') ? filePath.substring(1) : filePath);
-
-      const fileRes = await fetch(githubApiUrl.toString());
-
-      if (!fileRes.ok) {
-        if (fileRes.status === 404 && filePath !== '/404.html') {
-          const fallbackUrl = new URL(`${apiUrl}/github/contents`);
-          fallbackUrl.searchParams.set('userId', deployment.userId);
-          fallbackUrl.searchParams.set('projectName', deployment.projectName);
-          fallbackUrl.searchParams.set('path', '404.html');
-          
-          const fallbackRes = await fetch(fallbackUrl.toString());
-          if (fallbackRes.ok) {
-            const fallbackJson = await fallbackRes.json() as any;
-            if (fallbackJson.success && fallbackJson.data && fallbackJson.data.content) {
-              const decodedFallback = atob(fallbackJson.data.content);
-              return new Response(decodedFallback, {
-                status: 404,
-                headers: {
-                  'Content-Type': 'text/html',
-                  'Cache-Control': 'public, max-age=300'
-                }
-              });
-            }
-          }
-        }
-        
-        // Unavailable page -> Redirect to Play Store
-        return Response.redirect(playStoreUrl, 302);
-      }
-
-      const fileJson = await fileRes.json() as any;
-      if (!fileJson.success || !fileJson.data || !fileJson.data.content) {
-         return Response.redirect(playStoreUrl, 302);
-      }
-      
-      const extMatch = filePath.match(/\.[0-9a-z]+$/i);
-      const ext = extMatch ? extMatch[0].toLowerCase() : '';
-      const contentType = MIME_TYPES[ext] || 'application/octet-stream';
-
-      // Decode base64 content from GitHub API
-      // We use Uint8Array to correctly handle binary files like images
-      const binaryString = atob(fileJson.data.content);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-      }
-
-      return new Response(bytes.buffer, {
+      return new Response(fullHtml, {
         status: 200,
         headers: {
-          'Content-Type': contentType,
-          'Cache-Control': 'public, max-age=300',
-          'Access-Control-Allow-Origin': '*'
-        }
+          "Content-Type": "text/html; charset=utf-8",
+          "Cache-Control": "public, max-age=60",
+          "Access-Control-Allow-Origin": "*",
+        },
       });
     } catch (err) {
-      // If ANY exception happens (missing env variables, network fail, etc) -> Redirect to Play Store
-      console.error('Worker error:', err);
-      return Response.redirect(playStoreUrl, 302);
+      console.error("Worker error:", err);
+      return redirect(playStoreUrl);
     }
-  }
+  },
 };
+
+function buildPage(html: string, css: string, js: string): string {
+  // If the user provided a complete HTML document, inject CSS & JS into it
+  if (html.includes("</head>") || html.includes("<html")) {
+    let page = html;
+
+    if (css.trim()) {
+      page = page.replace(
+        "</head>",
+        `<style>\n${css}\n</style>\n</head>`
+      );
+    }
+    if (js.trim()) {
+      page = page.replace(
+        "</body>",
+        `<script>\n${js}\n</script>\n</body>`
+      );
+    }
+    return page;
+  }
+
+  // Otherwise wrap as a standalone page
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>My Site</title>
+  ${css.trim() ? `<style>\n${css}\n</style>` : ""}
+</head>
+<body>
+  ${html}
+  ${js.trim() ? `<script>\n${js}\n</script>` : ""}
+</body>
+</html>`;
+}
