@@ -1,6 +1,6 @@
 # API Reference
 
-All API requests (except `GET /health` and `GET /sites/:subdomain`) must be authenticated with a Firebase ID token.
+All API requests (except `GET /health` and `GET /sites/:subdomain`) must include the user's UID (either via `?uid=` query parameter or `userId`/`uid` in the JSON body).
 
 ## Endpoints
 
@@ -25,7 +25,6 @@ Deploy a project.
 **Request:**
 ```bash
 curl -X POST http://localhost:3000/api/deploy \
-  -H "Authorization: Bearer <firebase_id_token>" \
   -H "Content-Type: application/json" \
   -d '{
     "userId": "user123",
@@ -50,7 +49,7 @@ Get user deployments.
 
 **Request:**
 ```bash
-curl -H "Authorization: Bearer <firebase_id_token>" http://localhost:3000/api/deployments
+curl http://localhost:3000/api/deployments?uid=user123
 ```
 
 **Response:**
@@ -77,7 +76,7 @@ Get specific deployment.
 
 **Request:**
 ```bash
-curl -H "Authorization: Bearer <firebase_id_token>" http://localhost:3000/api/deployments/dep_123456789
+curl http://localhost:3000/api/deployments/dep_123456789?uid=user123
 ```
 
 **Response:**
@@ -102,7 +101,7 @@ Trigger redeploy.
 
 **Request:**
 ```bash
-curl -X POST -H "Authorization: Bearer <firebase_id_token>" http://localhost:3000/api/deployments/dep_123456789/redeploy
+curl -X POST http://localhost:3000/api/deployments/dep_123456789/redeploy?uid=user123
 ```
 
 **Response:**
@@ -119,7 +118,7 @@ Delete a deployment.
 
 **Request:**
 ```bash
-curl -X DELETE -H "Authorization: Bearer <firebase_id_token>" http://localhost:3000/api/deployments/dep_123456789
+curl -X DELETE http://localhost:3000/api/deployments/dep_123456789?uid=user123
 ```
 
 **Response:**
