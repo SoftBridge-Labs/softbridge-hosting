@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getKv } from '@/lib/db';
 import { pool } from '@/lib/postgres';
 
-export async function DELETE(
+export async function POST(
   req: NextRequest,
   { params }: { params: { subdomain: string } }
 ) {
@@ -18,7 +18,7 @@ export async function DELETE(
       return NextResponse.json({ success: false, error: { message: 'Missing subdomain' } }, { status: 400 });
     }
 
-    // Get site to verify ownership and get siteId
+    // Verify ownership
     const { rows } = await pool.query('SELECT * FROM "Site" WHERE subdomain = $1', [subdomain]);
     const site = rows[0];
 
@@ -30,24 +30,32 @@ export async function DELETE(
       return NextResponse.json({ success: false, error: { message: 'Forbidden' } }, { status: 403 });
     }
 
-    // Delete from Postgres
-    await pool.query('DELETE FROM "Site" WHERE subdomain = $1', [subdomain]);
+    const now = new Date().toISOString();
 
-    // Delete from KV
+    // Update Postgres timestamp
+    await pool.query('UPDATE "Site" SET "lastDeployedAt" = $1 WHERE subdomain = $2', [now, subdomain]);
+
+    // Update KV timestamp
     const kv = await getKv();
-    await kv.atomic()
-      .delete(['deployments_by_subdomain', subdomain])
-      .delete(['deployments_by_user', uid, site.id])
-      .delete(['deployments_by_id', site.id])
-      .commit();
+    const existing = await kv.get(['deployments_by_subdomain', subdomain]);
+    
+    if (existing.value) {
+      const meta = { ...(existing.value as any), lastDeployedAt: now };
+      await kv.atomic()
+        .set(['deployments_by_subdomain', subdomain], meta)
+        .set(['deployments_by_user', uid, site.id], meta)
+        .set(['deployments_by_id', site.id], meta)
+        .commit();
+    }
 
     return NextResponse.json({
       success: true,
-      message: 'Site deleted'
+      message: 'Redeployed',
+      url: `https://${subdomain}.sblab.xyz`
     });
 
   } catch (err: any) {
-    console.error('Delete site error', err);
+    console.error('Redeploy site error', err);
     return NextResponse.json({ success: false, error: { message: 'Internal Server Error' } }, { status: 500 });
   }
 }

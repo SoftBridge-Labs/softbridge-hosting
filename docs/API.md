@@ -12,7 +12,7 @@ Create a new deployment or update an existing deployment's code.
 {
   "userId": "firebase_user_uid",
   "projectName": "My Awesome Site",
-  "subdomain": "awesome-site-123",
+  "subdomain": "test",
   "plan": "free",
   "html": "<h1>Hello World!</h1>",
   "css": "h1 { color: red; }",
@@ -25,7 +25,7 @@ Create a new deployment or update an existing deployment's code.
 {
   "success": true,
   "deploymentId": "clqweasdzxcv...",
-  "url": "https://awesome-site-123.sblab.xyz",
+  "url": "https://test.sblab.xyz",
   "status": "active"
 }
 ```
@@ -57,7 +57,7 @@ List all deployments for a specific user.
     {
       "siteId": "clqweasdzxcv...",
       "userId": "firebase_user_uid",
-      "subdomain": "awesome-site-123",
+      "subdomain": "test",
       "projectName": "My Awesome Site",
       "plan": "free",
       "status": "active",
@@ -74,7 +74,7 @@ List all deployments for a specific user.
 Delete a site (sets status to deleted and clears metadata).
 
 **Request:**
-`DELETE /api/sites/awesome-site-123?uid=firebase_user_uid`
+`DELETE /api/sites/test?uid=firebase_user_uid`
 
 **Response:**
 ```json
@@ -90,14 +90,14 @@ Delete a site (sets status to deleted and clears metadata).
 Update the `lastDeployedAt` timestamp for a site (forces Cloudflare cache flush logic if implemented).
 
 **Request:**
-`POST /api/sites/awesome-site-123/redeploy?uid=firebase_user_uid`
+`POST /api/sites/test/redeploy?uid=firebase_user_uid`
 
 **Response:**
 ```json
 {
   "success": true,
   "message": "Redeployed",
-  "url": "https://awesome-site-123.sblab.xyz"
+  "url": "https://test.sblab.xyz"
 }
 ```
 
@@ -112,7 +112,7 @@ Used by the edge worker to fetch the HTML/CSS/JS for rendering a subdomain.
 ```json
 {
   "success": true,
-  "subdomain": "awesome-site-123",
+  "subdomain": "test",
   "userId": "firebase_user_uid",
   "projectName": "My Awesome Site",
   "plan": "free",

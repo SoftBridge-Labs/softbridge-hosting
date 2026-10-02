@@ -1,24 +1,39 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { authenticateRequest } from '@/lib/auth';
-import { getKv } from '@/lib/db';
+import { pool } from '@/lib/postgres';
 
 export async function GET(req: NextRequest) {
-  const uid = await authenticateRequest(req);
-  if (!uid) {
-    return NextResponse.json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Unauthorized' } }, { status: 401 });
-  }
-
   try {
-    const kv = await getKv();
-    const deployments = [];
-    
-    const iter = kv.list({ prefix: ['deployments_by_user', uid] });
-    for await (const entry of iter) {
-      deployments.push(entry.value);
+    const uid = req.nextUrl.searchParams.get('uid');
+
+    if (!uid) {
+      return NextResponse.json({ success: false, error: { message: 'Missing uid' } }, { status: 401 });
     }
+
+    const { rows } = await pool.query('SELECT * FROM "Site" WHERE "userId" = $1 ORDER BY "updatedAt" DESC', [uid]);
     
-    return NextResponse.json({ success: true, deployments });
-  } catch (error) {
-    return NextResponse.json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Internal Server Error' } }, { status: 500 });
+    // Map to deployment format
+    const deployments = rows.map(site => ({
+      deploymentId: site.id,
+      siteId: site.id,
+      userId: site.userId,
+      subdomain: site.subdomain,
+      projectName: site.projectName,
+      plan: site.plan,
+      status: site.status,
+      createdAt: site.createdAt,
+      lastDeployedAt: site.lastDeployedAt,
+      html: site.html || "",
+      css: site.css || "",
+      js: site.js || ""
+    }));
+
+    return NextResponse.json({
+      success: true,
+      deployments
+    });
+
+  } catch (err: any) {
+    console.error('Fetch deployments error', err);
+    return NextResponse.json({ success: false, error: { message: 'Internal Server Error' } }, { status: 500 });
   }
 }
