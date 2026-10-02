@@ -18,28 +18,40 @@ export async function DELETE(
       return NextResponse.json({ success: false, error: { message: 'Missing subdomain' } }, { status: 400 });
     }
 
-    // Get site to verify ownership and get siteId
+    // 1. Check Postgres first
     const { rows } = await pool.query('SELECT * FROM "Site" WHERE subdomain = $1', [subdomain]);
     const site = rows[0];
 
-    if (!site) {
+    const kv = await getKv();
+    const existingKv = await kv.get(['deployments_by_subdomain', subdomain]);
+    const kvSite = existingKv.value as any;
+
+    if (!site && !kvSite) {
       return NextResponse.json({ success: false, error: { message: 'Site not found' } }, { status: 404 });
     }
 
-    if (site.userId !== uid) {
+    // Verify ownership against whichever one exists
+    const ownerId = site?.userId || kvSite?.userId;
+    if (ownerId !== uid) {
       return NextResponse.json({ success: false, error: { message: 'Forbidden' } }, { status: 403 });
     }
 
-    // Delete from Postgres
-    await pool.query('DELETE FROM "Site" WHERE subdomain = $1', [subdomain]);
+    // 2. Delete from Postgres if it exists there
+    if (site) {
+      await pool.query('DELETE FROM "Site" WHERE subdomain = $1', [subdomain]);
+    }
 
-    // Delete from KV
-    const kv = await getKv();
-    await kv.atomic()
-      .delete(['deployments_by_subdomain', subdomain])
-      .delete(['deployments_by_user', uid, site.id])
-      .delete(['deployments_by_id', site.id])
-      .commit();
+    // 3. Delete from KV if it exists there
+    if (kvSite) {
+      const siteId = kvSite.deploymentId || kvSite.siteId || site?.id;
+      if (siteId) {
+        await kv.atomic()
+          .delete(['deployments_by_subdomain', subdomain])
+          .delete(['deployments_by_user', uid, siteId])
+          .delete(['deployments_by_id', siteId])
+          .commit();
+      }
+    }
 
     return NextResponse.json({
       success: true,
