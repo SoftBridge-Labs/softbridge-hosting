@@ -1,56 +1,53 @@
-# API Reference
+# SoftBridge Hosting API Documentation
 
-All API requests (except `GET /health` and `GET /sites/:subdomain`) must include the user's UID (either via `?uid=` query parameter or `userId`/`uid` in the JSON body).
+**Base URL (Deno Deploy API):** `https://sblab.xyz`
 
-## Endpoints
+---
 
-### 1. `GET /health`
-Health check.
+### 1. `POST /api/deploy`
+Create a new deployment or update an existing deployment's code.
 
 **Request:**
-```bash
-curl http://localhost:3000/api/health
-```
-
-**Response:**
 ```json
 {
-  "success": true
+  "userId": "firebase_user_uid",
+  "projectName": "My Awesome Site",
+  "subdomain": "awesome-site-123",
+  "plan": "free",
+  "html": "<h1>Hello World!</h1>",
+  "css": "h1 { color: red; }",
+  "js": "console.log('Running');"
 }
 ```
 
-### 2. `POST /deploy`
-Deploy a project.
-
-**Request:**
-```bash
-curl -X POST http://localhost:3000/api/deploy \
-  -H "Content-Type: application/json" \
-  -d '{
-    "userId": "user123",
-    "projectName": "my-portfolio",
-    "subdomain": "myportfolio",
-    "plan": "free"
-  }'
-```
-
-**Response:**
+**Response (Success):**
 ```json
 {
   "success": true,
-  "deploymentId": "dep_123456789",
-  "url": "https://myportfolio.sblab.xyz",
+  "deploymentId": "clqweasdzxcv...",
+  "url": "https://awesome-site-123.sblab.xyz",
   "status": "active"
 }
 ```
 
-### 3. `GET /deployments`
-Get user deployments.
+**Response (Error):**
+```json
+{
+  "success": false,
+  "error": {
+    "code": "SUBDOMAIN_TAKEN",
+    "message": "This subdomain is already in use"
+  }
+}
+```
+
+---
+
+### 2. `GET /api/deployments`
+List all deployments for a specific user.
 
 **Request:**
-```bash
-curl http://localhost:3000/api/deployments?uid=user123
-```
+`GET /api/deployments?uid=firebase_user_uid`
 
 **Response:**
 ```json
@@ -58,93 +55,69 @@ curl http://localhost:3000/api/deployments?uid=user123
   "success": true,
   "deployments": [
     {
-      "deploymentId": "dep_123456789",
-      "userId": "user123",
-      "projectName": "my-portfolio",
-      "subdomain": "myportfolio",
+      "siteId": "clqweasdzxcv...",
+      "userId": "firebase_user_uid",
+      "subdomain": "awesome-site-123",
+      "projectName": "My Awesome Site",
       "plan": "free",
       "status": "active",
-      "createdAt": "2024-03-02T18:30:00.000Z",
-      "lastDeployedAt": "2024-03-02T18:30:00.000Z"
+      "createdAt": "2024-01-01T12:00:00.000Z",
+      "lastDeployedAt": "2024-01-01T12:00:00.000Z"
     }
   ]
 }
 ```
 
-### 4. `GET /deployments/:id`
-Get specific deployment.
+---
+
+### 3. `DELETE /api/sites/:subdomain`
+Delete a site (sets status to deleted and clears metadata).
 
 **Request:**
-```bash
-curl http://localhost:3000/api/deployments/dep_123456789?uid=user123
-```
+`DELETE /api/sites/awesome-site-123?uid=firebase_user_uid`
 
 **Response:**
 ```json
 {
   "success": true,
-  "deployment": {
-    "deploymentId": "dep_123456789",
-    "userId": "user123",
-    "projectName": "my-portfolio",
-    "subdomain": "myportfolio",
-    "plan": "free",
-    "status": "active",
-    "createdAt": "2024-03-02T18:30:00.000Z",
-    "lastDeployedAt": "2024-03-02T18:30:00.000Z"
-  }
+  "message": "Site deleted"
 }
 ```
 
-### 5. `POST /deployments/:id/redeploy`
-Trigger redeploy.
+---
+
+### 4. `POST /api/sites/:subdomain/redeploy`
+Update the `lastDeployedAt` timestamp for a site (forces Cloudflare cache flush logic if implemented).
 
 **Request:**
-```bash
-curl -X POST http://localhost:3000/api/deployments/dep_123456789/redeploy?uid=user123
-```
+`POST /api/sites/awesome-site-123/redeploy?uid=firebase_user_uid`
 
 **Response:**
 ```json
 {
   "success": true,
-  "message": "Redeployed successfully",
-  "deploymentId": "dep_123456789"
+  "message": "Redeployed",
+  "url": "https://awesome-site-123.sblab.xyz"
 }
 ```
 
-### 6. `DELETE /deployments/:id`
-Delete a deployment.
+---
 
-**Request:**
-```bash
-curl -X DELETE http://localhost:3000/api/deployments/dep_123456789?uid=user123
-```
+### Internal Cloudflare Worker Endpoints
 
-**Response:**
-```json
-{
-  "success": true,
-  "message": "Deployment deleted"
-}
-```
-
-### 7. `GET /sites/:subdomain`
-Internal: get site files or metadata (used by Cloudflare Worker).
-
-**Request:**
-```bash
-curl http://localhost:3000/api/sites/myportfolio
-```
+**`GET /api/sites/:subdomain/code`**
+Used by the edge worker to fetch the HTML/CSS/JS for rendering a subdomain.
 
 **Response:**
 ```json
 {
   "success": true,
-  "deploymentId": "dep_123456789",
-  "userId": "user123",
-  "projectName": "my-portfolio",
-  "subdomain": "myportfolio",
-  "plan": "free"
+  "subdomain": "awesome-site-123",
+  "userId": "firebase_user_uid",
+  "projectName": "My Awesome Site",
+  "plan": "free",
+  "html": "...",
+  "css": "...",
+  "js": "..."
 }
 ```
