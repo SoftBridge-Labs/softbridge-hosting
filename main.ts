@@ -23,9 +23,9 @@ async function handleDeploy(req: Request, kv: Deno.Kv) {
     }
 
     const MAIN_API_URL = Deno.env.get('MAIN_API_URL') || 'https://api.softbridgelabs.in';
-    const verifyRes = await fetch(`${MAIN_API_URL}/github/contents?userId=${uid}&projectName=${projectName}&path=index.html`);
+    const verifyRes = await fetch(`${MAIN_API_URL}/github/contents?userId=${uid}&projectName=${projectName}`);
     if (!verifyRes.ok) {
-      return Response.json({ success: false, error: { code: 'PROJECT_NOT_FOUND', message: 'Project or index.html not found' } }, { status: 400 });
+      return Response.json({ success: false, error: { code: 'PROJECT_NOT_FOUND', message: 'Project not found in GitHub repository' } }, { status: 400 });
     }
 
     if (!/^[a-z0-9-]+$/.test(subdomain)) {
