@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { pool } from '@/lib/postgres';
 
 export async function GET(
   req: NextRequest,
@@ -11,9 +11,8 @@ export async function GET(
       return NextResponse.json({ success: false, error: 'Missing subdomain' }, { status: 400 });
     }
 
-    const site = await prisma.site.findUnique({
-      where: { subdomain },
-    });
+    const { rows } = await pool.query('SELECT * FROM "Site" WHERE subdomain = $1', [subdomain]);
+    const site = rows[0];
 
     if (!site) {
       return NextResponse.json({ success: false, error: 'Site not found' }, { status: 404 });

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getKv } from '@/lib/db';
-import { prisma } from '@/lib/prisma';
+import { pool } from '@/lib/postgres';
 
 const RESERVED_SUBDOMAINS = [
   'www', 'api', 'admin', 'app', 'auth', 'login', 'support', 'docs',
@@ -13,7 +13,6 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     let { userId, projectName, subdomain, plan = "free", html = "", css = "", js = "" } = body;
     
-    // Fallback if the Flutter app is outdated and passes uid in url or something
     if (!userId) {
       userId = req.nextUrl.searchParams.get('uid') || body.uid;
     }
@@ -58,35 +57,44 @@ export async function POST(req: NextRequest) {
     }
 
     const now = new Date();
+    const siteId = (existing.value as any)?.siteId || `site_${Date.now()}_${Math.random().toString(36).substring(7)}`;
 
-    // Upsert site in Postgres (create or update code)
-    const site = await prisma.site.upsert({
-      where: { subdomain },
-      create: { subdomain, userId, projectName, plan, html, css, js, status: "active" },
-      update: { html, css, js, projectName, plan, updatedAt: now, lastDeployedAt: now },
-    });
+    // Upsert site in Postgres using raw SQL
+    await pool.query(`
+      INSERT INTO "Site" (id, "userId", "projectName", subdomain, plan, html, css, js, status, "createdAt", "updatedAt", "lastDeployedAt")
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'active', $9, $9, $9)
+      ON CONFLICT (subdomain) 
+      DO UPDATE SET 
+        html = EXCLUDED.html,
+        css = EXCLUDED.css,
+        js = EXCLUDED.js,
+        "projectName" = EXCLUDED."projectName",
+        plan = EXCLUDED.plan,
+        "updatedAt" = EXCLUDED."updatedAt",
+        "lastDeployedAt" = EXCLUDED."lastDeployedAt"
+    `, [siteId, userId, projectName, subdomain, plan, html, css, js, now.toISOString()]);
 
     // Store metadata in KV for fast subdomain lookups
     const meta = {
-      siteId: site.id,
+      siteId,
       userId,
       subdomain,
       projectName,
       plan,
       status: "active",
-      createdAt: site.createdAt.toISOString(),
+      createdAt: (existing.value as any)?.createdAt || now.toISOString(),
       lastDeployedAt: now.toISOString(),
     };
     
     await kv.atomic()
       .set(['deployments_by_subdomain', subdomain], meta)
-      .set(['deployments_by_user', userId, site.id], meta)
-      .set(['deployments_by_id', site.id], meta)
+      .set(['deployments_by_user', userId, siteId], meta)
+      .set(['deployments_by_id', siteId], meta)
       .commit();
 
     return NextResponse.json({
       success: true,
-      deploymentId: site.id,
+      deploymentId: siteId,
       url: `https://${subdomain}.sblab.xyz`,
       status: 'active'
     });
