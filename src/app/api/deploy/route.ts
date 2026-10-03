@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
     const siteId = (existing.value as any)?.siteId || `site_${Date.now()}_${Math.random().toString(36).substring(7)}`;
 
     // Upsert site in Postgres using raw SQL
-    await pool.query(`
+    const insertQuery = `
       INSERT INTO "Site" (id, "userId", "projectName", subdomain, plan, html, css, js, files, status, "createdAt", "updatedAt", "lastDeployedAt")
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'active', $10, $10, $10)
       ON CONFLICT (subdomain) 
@@ -86,7 +86,19 @@ export async function POST(req: NextRequest) {
         plan = EXCLUDED.plan,
         "updatedAt" = EXCLUDED."updatedAt",
         "lastDeployedAt" = EXCLUDED."lastDeployedAt"
-    `, [siteId, userId, projectName, subdomain, plan, html, css, js, JSON.stringify(files), now.toISOString()]);
+    `;
+    const insertValues = [siteId, userId, projectName, subdomain, plan, html, css, js, JSON.stringify(files), now.toISOString()];
+
+    try {
+      await pool.query(insertQuery, insertValues);
+    } catch (dbErr: any) {
+      if (dbErr.code === '42703') { // undefined_column
+        await pool.query('ALTER TABLE "Site" ADD COLUMN IF NOT EXISTS files JSONB DEFAULT \'[]\'');
+        await pool.query(insertQuery, insertValues); // Retry after adding column
+      } else {
+        throw dbErr;
+      }
+    }
 
     // Store metadata in KV for fast subdomain lookups
     const meta = {
