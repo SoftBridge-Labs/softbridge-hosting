@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getKv } from '@/lib/db';
 import { pool } from '@/lib/postgres';
+import { Filter } from 'bad-words';
 
 const RESERVED_SUBDOMAINS = [
   'www', 'api', 'admin', 'app', 'auth', 'login', 'support', 'docs',
@@ -11,7 +12,7 @@ const RESERVED_SUBDOMAINS = [
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    let { userId, projectName, subdomain, plan = "free", html = "", css = "", js = "" } = body;
+    let { userId, projectName, subdomain, plan = "free", html = "", css = "", js = "", files = [] } = body;
     
     if (!userId) {
       userId = req.nextUrl.searchParams.get('uid') || body.uid;
@@ -33,8 +34,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: { code: 'RESERVED_SUBDOMAIN', message: 'This subdomain is reserved' } }, { status: 400 });
     }
 
-    if (!html.trim() && !css.trim() && !js.trim()) {
-      return NextResponse.json({ success: false, error: { code: "EMPTY_CODE", message: "Please provide at least some HTML content" } }, { status: 400 });
+    if (!html.trim() && !css.trim() && !js.trim() && (!Array.isArray(files) || files.length === 0)) {
+      return NextResponse.json({ success: false, error: { code: "EMPTY_CODE", message: "Please provide at least some HTML content or files" } }, { status: 400 });
+    }
+
+    const totalSize = Buffer.byteLength(html + css + js + JSON.stringify(files), 'utf8');
+    if (totalSize > 5 * 1024 * 1024) {
+      return NextResponse.json({ success: false, error: { code: 'PAYLOAD_TOO_LARGE', message: 'Total payload size exceeds 5MB limit per site' } }, { status: 413 });
+    }
+
+    const filter = new Filter();
+
+    const contentToCheck = html + " " + css + " " + js + " " + JSON.stringify(files);
+    if (filter.isProfane(contentToCheck)) {
+      return NextResponse.json({ success: false, error: { code: 'ILLEGAL_CONTENT', message: 'Content violates platform policies' } }, { status: 403 });
     }
 
     const kv = await getKv();
@@ -61,18 +74,19 @@ export async function POST(req: NextRequest) {
 
     // Upsert site in Postgres using raw SQL
     await pool.query(`
-      INSERT INTO "Site" (id, "userId", "projectName", subdomain, plan, html, css, js, status, "createdAt", "updatedAt", "lastDeployedAt")
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'active', $9, $9, $9)
+      INSERT INTO "Site" (id, "userId", "projectName", subdomain, plan, html, css, js, files, status, "createdAt", "updatedAt", "lastDeployedAt")
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'active', $10, $10, $10)
       ON CONFLICT (subdomain) 
       DO UPDATE SET 
         html = EXCLUDED.html,
         css = EXCLUDED.css,
         js = EXCLUDED.js,
+        files = EXCLUDED.files,
         "projectName" = EXCLUDED."projectName",
         plan = EXCLUDED.plan,
         "updatedAt" = EXCLUDED."updatedAt",
         "lastDeployedAt" = EXCLUDED."lastDeployedAt"
-    `, [siteId, userId, projectName, subdomain, plan, html, css, js, now.toISOString()]);
+    `, [siteId, userId, projectName, subdomain, plan, html, css, js, JSON.stringify(files), now.toISOString()]);
 
     // Store metadata in KV for fast subdomain lookups
     const meta = {

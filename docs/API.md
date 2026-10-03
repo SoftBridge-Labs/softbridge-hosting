@@ -16,9 +16,17 @@ Create a new deployment or update an existing deployment's code.
   "plan": "free",
   "html": "<h1>Hello World!</h1>",
   "css": "h1 { color: red; }",
-  "js": "console.log('Running');"
+  "js": "console.log('Running');",
+  "files": [
+    {
+      "path": "/sub-page/index.html or css or js or any other",
+      "content": "code here"
+    }
+  ]
 }
 ```
+
+*Note: The total size of `html` + `css` + `js` + `files` is limited to 5MB per site. Additionally, all content is checked against a list of illegal keywords.*
 
 **Response (Success):**
 ```json
@@ -103,6 +111,30 @@ Update the `lastDeployedAt` timestamp for a site (forces Cloudflare cache flush 
 
 ---
 
+### 5. `GET /api/analytics/:subdomain`
+Get analytics data for a specific hosted site.
+
+**Request:**
+`GET /api/analytics/test`
+
+**Response:**
+```json
+{
+  "success": true,
+  "subdomain": "test",
+  "analytics": {
+    "views": 150,
+    "uniqueVisitors": 42,
+    "bandwidthBytes": 1048576,
+    "topReferrers": [],
+    "topPaths": [],
+    "lastUpdated": "2024-01-01T12:00:00.000Z"
+  }
+}
+```
+
+---
+
 ### Internal Cloudflare Worker Endpoints
 
 **`GET /api/sites/:subdomain/code`**
@@ -118,6 +150,7 @@ Used by the edge worker to fetch the HTML/CSS/JS for rendering a subdomain.
   "plan": "free",
   "html": "...",
   "css": "...",
-  "js": "..."
+  "js": "...",
+  "files": []
 }
 ```

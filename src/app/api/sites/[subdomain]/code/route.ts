@@ -26,7 +26,8 @@ export async function GET(
       plan: site.plan,
       html: site.html || "",
       css: site.css || "",
-      js: site.js || ""
+      js: site.js || "",
+      files: site.files || []
     });
 
   } catch (err: any) {
