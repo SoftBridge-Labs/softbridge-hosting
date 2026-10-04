@@ -126,8 +126,26 @@ Get analytics data for a specific hosted site.
     "views": 150,
     "uniqueVisitors": 42,
     "bandwidthBytes": 1048576,
-    "topReferrers": [],
-    "topPaths": [],
+    "topReferrers": [
+      {
+        "domain": "twitter.com",
+        "visits": 15
+      },
+      {
+        "domain": "google.com",
+        "visits": 10
+      }
+    ],
+    "topPaths": [
+      {
+        "path": "/",
+        "visits": 120
+      },
+      {
+        "path": "/about.html",
+        "visits": 30
+      }
+    ],
     "lastUpdated": "2024-01-01T12:00:00.000Z"
   }
 }
@@ -152,5 +170,26 @@ Used by the edge worker to fetch the HTML/CSS/JS for rendering a subdomain.
   "css": "...",
   "js": "...",
   "files": []
+}
+```
+
+**`POST /api/analytics/:subdomain`**
+Used asynchronously by the edge worker to increment analytics stats for a site upon a successful visit.
+
+**Request Body:**
+```json
+{
+  "views": 1,
+  "visitorId": "hash_or_ip",
+  "referrer": "https://twitter.com/some/path",
+  "path": "/about.html",
+  "bandwidthBytes": 4500
+}
+```
+
+**Response:**
+```json
+{
+  "success": true
 }
 ```

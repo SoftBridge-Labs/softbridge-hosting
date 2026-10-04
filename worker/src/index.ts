@@ -42,6 +42,10 @@ export default {
         site.plan || "free"
       );
 
+      const visitorId = request.headers.get("cf-connecting-ip") || request.headers.get("x-forwarded-for") || "unknown";
+      const referrer = request.headers.get("referer") || url.searchParams.get("ref") || url.searchParams.get("utm_source") || "";
+      const path = url.pathname;
+
       // Track analytics asynchronously
       ctx.waitUntil(
         fetch(`${hostingApi}/api/analytics/${subdomain}`, {
@@ -49,7 +53,9 @@ export default {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             views: 1,
-            uniqueVisitors: 1, // rough estimate
+            visitorId,
+            referrer,
+            path,
             bandwidthBytes: new Blob([fullHtml]).size,
           }),
         }).catch(err => console.error("Analytics error:", err))
