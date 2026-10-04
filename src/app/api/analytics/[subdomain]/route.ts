@@ -49,3 +49,43 @@ export async function GET(
     return NextResponse.json({ success: false, error: 'Internal Server Error' }, { status: 500 });
   }
 }
+
+export async function POST(
+  req: NextRequest,
+  { params }: { params: { subdomain: string } }
+) {
+  try {
+    const { subdomain } = params;
+    if (!subdomain) {
+      return NextResponse.json({ success: false, error: 'Missing subdomain' }, { status: 400 });
+    }
+
+    const body = await req.json();
+    const kv = await getKv();
+    const analyticsKV = await kv.get(['analytics', subdomain]);
+    let analyticsData = analyticsKV.value as any;
+
+    if (!analyticsData) {
+      analyticsData = {
+        views: 0,
+        uniqueVisitors: 0,
+        bandwidthBytes: 0,
+        topReferrers: [],
+        topPaths: [],
+        lastUpdated: new Date().toISOString()
+      };
+    }
+
+    analyticsData.views += body.views || 0;
+    analyticsData.uniqueVisitors += body.uniqueVisitors || 0;
+    analyticsData.bandwidthBytes += body.bandwidthBytes || 0;
+    analyticsData.lastUpdated = new Date().toISOString();
+
+    await kv.set(['analytics', subdomain], analyticsData);
+
+    return NextResponse.json({ success: true });
+  } catch (err: any) {
+    console.error('Update analytics error', err);
+    return NextResponse.json({ success: false, error: 'Internal Server Error' }, { status: 500 });
+  }
+}

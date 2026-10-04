@@ -35,12 +35,24 @@ export default {
       const site = (await codeRes.json()) as any;
       if (!site.success) return redirect(playStoreUrl);
 
-      // Assemble a full HTML page combining html + css + js
       const fullHtml = buildPage(
         site.html || "",
         site.css || "",
         site.js || "",
         site.plan || "free"
+      );
+
+      // Track analytics asynchronously
+      ctx.waitUntil(
+        fetch(`${hostingApi}/api/analytics/${subdomain}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            views: 1,
+            uniqueVisitors: 1, // rough estimate
+            bandwidthBytes: new Blob([fullHtml]).size,
+          }),
+        }).catch(err => console.error("Analytics error:", err))
       );
 
       return new Response(fullHtml, {
