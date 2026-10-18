@@ -1,39 +1,147 @@
-// @ts-nocheck
 // Cloudflare Worker — serves HTML/CSS/JS from Deno Deploy + Prisma Postgres
 
 export interface Env {
-  HOSTING_API_URL: string;
+  HOSTING_API_URL?: string;
+  API_URL?: string;
+  RATE_LIMITER?: {
+    limit(options: { key: string }): Promise<{ success: boolean }>;
+  };
+}
+
+interface WorkerExecutionContext {
+  waitUntil(promise: Promise<unknown>): void;
 }
 
 const playStoreUrl =
   "https://play.google.com/store/apps/details?id=com.protecgames.htmleditorpro";
+const siteSuffix = ".sblab.xyz";
+const rateLimitWindowMs = 60_000;
+const rateLimitMaxRequests = 120;
+const localRateLimits = new Map<string, number[]>();
 
 function redirect(url: string) {
   return Response.redirect(url, 302);
 }
 
+function rateLimitedResponse() {
+  return new Response("Too many requests", {
+    status: 429,
+    headers: {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Retry-After": "60",
+      "Access-Control-Allow-Origin": "*",
+    },
+  });
+}
+
+async function isRateLimited(request: Request, env: Env): Promise<boolean> {
+  const ip = request.headers.get("cf-connecting-ip") || "unknown";
+
+  if (env.RATE_LIMITER) {
+    const result = await env.RATE_LIMITER.limit({ key: ip });
+    return !result.success;
+  }
+
+  const now = Date.now();
+  const recentRequests = (localRateLimits.get(ip) || []).filter(
+    (timestamp) => now - timestamp < rateLimitWindowMs
+  );
+
+  if (recentRequests.length >= rateLimitMaxRequests) {
+    localRateLimits.set(ip, recentRequests);
+    return true;
+  }
+
+  recentRequests.push(now);
+  localRateLimits.set(ip, recentRequests);
+
+  if (localRateLimits.size > 10_000) {
+    localRateLimits.forEach((timestamps, key) => {
+      if (timestamps.every((timestamp) => now - timestamp >= rateLimitWindowMs)) {
+        localRateLimits.delete(key);
+      }
+    });
+  }
+
+  return false;
+}
+
+function apiFailureResponse(status: number, message: string) {
+  return new Response(message, {
+    status,
+    headers: {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Access-Control-Allow-Origin": "*",
+      "Cache-Control": "no-store",
+    },
+  });
+}
+
 export default {
-  async fetch(request: Request, env: Env, ctx: any): Promise<Response> {
+  async fetch(
+    request: Request,
+    env: Env,
+    ctx: WorkerExecutionContext
+  ): Promise<Response> {
     try {
+      if (await isRateLimited(request, env)) {
+        return rateLimitedResponse();
+      }
+
       const url = new URL(request.url);
       const hostname = url.hostname;
 
-      if (!hostname.endsWith(".sblab.xyz")) {
+      if (!hostname.endsWith(siteSuffix)) {
         return redirect(playStoreUrl);
       }
 
-      const subdomain = hostname.replace(".sblab.xyz", "");
-      const hostingApi = env.HOSTING_API_URL || "https://sblab.xyz";
+      const subdomain = hostname.slice(0, -siteSuffix.length);
+      if (!subdomain || subdomain.includes(".")) {
+        return redirect(playStoreUrl);
+      }
+
+      const hostingApi =
+        env.HOSTING_API_URL || env.API_URL || "https://api.softbridgelabs.in";
 
       // Fetch HTML/CSS/JS code from Deno Deploy API
-      const codeRes = await fetch(`${hostingApi}/api/sites/${subdomain}/code`);
+      let codeRes = await fetch(
+        `${hostingApi.replace(/\/$/, "")}/api/sites/${encodeURIComponent(
+          subdomain
+        )}/code`
+      );
 
-      if (!codeRes.ok) {
-        return redirect(playStoreUrl);
+      if (codeRes.status >= 500) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        codeRes = await fetch(
+          `${hostingApi.replace(/\/$/, "")}/api/sites/${encodeURIComponent(
+            subdomain
+          )}/code`
+        );
       }
 
-      const site = (await codeRes.json()) as any;
-      if (!site.success) return redirect(playStoreUrl);
+      if (!codeRes.ok) {
+        return apiFailureResponse(
+          codeRes.status === 404 ? 404 : 503,
+          codeRes.status === 404 ? "Site not found" : "Site temporarily unavailable"
+        );
+      }
+
+      let site: {
+        success?: boolean;
+        html?: string;
+        css?: string;
+        js?: string;
+        plan?: string;
+      };
+      try {
+        site = (await codeRes.json()) as typeof site;
+      } catch {
+        return apiFailureResponse(502, "Invalid site response");
+      }
+
+      if (!site.success) {
+        return apiFailureResponse(404, "Site not found");
+      }
 
       const fullHtml = buildPage(
         site.html || "",
@@ -42,7 +150,10 @@ export default {
         site.plan || "free"
       );
 
-      const visitorId = request.headers.get("cf-connecting-ip") || request.headers.get("x-forwarded-for") || "unknown";
+      const visitorId =
+        request.headers.get("cf-connecting-ip") ||
+        request.headers.get("x-forwarded-for") ||
+        "unknown";
       const referrer = request.headers.get("referer") || url.searchParams.get("ref") || url.searchParams.get("utm_source") || "";
       const path = url.pathname;
 
@@ -70,8 +181,13 @@ export default {
         },
       });
     } catch (err) {
-      console.error("Worker error:", err);
-      return redirect(playStoreUrl);
+      console.error(
+        JSON.stringify({
+          message: "Worker error",
+          error: err instanceof Error ? err.message : String(err),
+        })
+      );
+      return apiFailureResponse(503, "Service temporarily unavailable");
     }
   },
 };
@@ -131,7 +247,7 @@ function buildPage(html: string, css: string, js: string, plan: string): string 
         `<style>\n${css}\n</style>\n</head>`
       );
     }
-    
+
     let injectedScriptsAndBranding = "";
     if (js.trim()) {
       injectedScriptsAndBranding += `<script>\n${js}\n</script>\n`;
@@ -139,15 +255,15 @@ function buildPage(html: string, css: string, js: string, plan: string): string 
     if (plan !== 'premium') {
       injectedScriptsAndBranding += BRANDING_HTML;
     }
-    
+
     if (injectedScriptsAndBranding) {
       if (page.includes("</body>")) {
-         page = page.replace("</body>", `${injectedScriptsAndBranding}\n</body>`);
+        page = page.replace("</body>", `${injectedScriptsAndBranding}\n</body>`);
       } else {
-         page += injectedScriptsAndBranding;
+        page += injectedScriptsAndBranding;
       }
     }
-    
+
     return page;
   }
 

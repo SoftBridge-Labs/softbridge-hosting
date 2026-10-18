@@ -4,3 +4,13 @@ compatibility_date = "2024-06-01"
 
 [vars]
 API_URL = "https://api.softbridgelabs.in"
+HOSTING_API_URL = "https://api.softbridgelabs.in"
+
+[observability]
+enabled = true
+
+[observability.logs]
+enabled = true
+
+[observability.traces]
+enabled = true

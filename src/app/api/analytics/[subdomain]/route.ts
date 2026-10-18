@@ -78,7 +78,7 @@ export async function POST(
 
     analyticsData.views += body.views || 0;
     analyticsData.bandwidthBytes += body.bandwidthBytes || 0;
-    
+
     // Unique Visitors Tracking
     if (body.visitorId && body.visitorId !== 'unknown') {
       const visitorKey = ['analytics_visitor', subdomain, body.visitorId];
@@ -89,8 +89,8 @@ export async function POST(
         await kv.set(visitorKey, true, { expireIn: 86400000 });
       }
     } else if (!body.visitorId) {
-       // fallback if no visitor ID provided
-       analyticsData.uniqueVisitors += body.uniqueVisitors || 0;
+      // fallback if no visitor ID provided
+      analyticsData.uniqueVisitors += body.uniqueVisitors || 0;
     }
 
     // Top Referrers Tracking
@@ -100,7 +100,7 @@ export async function POST(
         if (body.referrer.startsWith('http')) {
           domainStr = new URL(body.referrer).hostname;
         }
-        
+
         const existingRef = analyticsData.topReferrers.find((r: any) => r.domain === domainStr);
         if (existingRef) {
           existingRef.visits += 1;
@@ -109,7 +109,7 @@ export async function POST(
         }
         analyticsData.topReferrers.sort((a: any, b: any) => b.visits - a.visits);
         analyticsData.topReferrers = analyticsData.topReferrers.slice(0, 10);
-      } catch(e) {
+      } catch (e) {
         // ignore invalid URL
       }
     }
