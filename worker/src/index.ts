@@ -101,7 +101,7 @@ export default {
       }
 
       const hostingApi =
-        env.HOSTING_API_URL || env.API_URL || "https://api.softbridgelabs.in";
+        env.HOSTING_API_URL || env.API_URL || "https://sblab.xyz";
 
       // Fetch HTML/CSS/JS code from Deno Deploy API
       let codeRes = await fetch(

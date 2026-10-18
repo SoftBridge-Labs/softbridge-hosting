@@ -3,8 +3,8 @@ main = "src/index.ts"
 compatibility_date = "2024-06-01"
 
 [vars]
-API_URL = "https://api.softbridgelabs.in"
-HOSTING_API_URL = "https://api.softbridgelabs.in"
+API_URL = "https://sblab.xyz"
+HOSTING_API_URL = "https://sblab.xyz"
 
 [observability]
 enabled = true

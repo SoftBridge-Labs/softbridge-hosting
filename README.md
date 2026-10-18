@@ -16,7 +16,7 @@ The system is split into two primary layers to balance secure metadata managemen
    - Runs globally on Cloudflare's Edge network (`worker/src/index.ts`).
    - Receives all incoming wildcard traffic for `*.sblab.xyz`.
    - Resolves the requested subdomain using the Deployment API.
-   - Fetches and streams the static assets directly from the main API (`api.softbridgelabs.in/github/contents`).
+   - Fetches the published HTML/CSS/JS from the Next.js deployment API at `sblab.xyz`.
 
 ---
 
